@@ -143,8 +143,8 @@ const loginUser = asyncHandler(async (req, res) => {
 const logoutUser = asyncHandler(async (req, res) => {
 
     await User.findByIdAndUpdate(req.user._id, {
-        $set: {
-            refreshToken: undefined
+        $unset: {
+            refreshToken: 1
         },
     },
         {
@@ -211,6 +211,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
 const changeCurrentPassword = asyncHandler(async (req, res) => {
     const { oldPassword, newPassword } = req.body
+    console.log(oldPassword, newPassword)
 
     const user = await User.findById(req.user?._id)
 
@@ -232,6 +233,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
     const { fullname, email } = req.body
+    console.log(fullname, email)
 
     if (!fullname || !email) {
         throw new ApiError(400, "All fields are required")
@@ -363,6 +365,8 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
 })
 
 const getWatchHistory = asyncHandler(async (req, res) => {
+    // const {a} = req.body
+    // console.log(a)
     const user = await User.aggregate([
         {
             $match: {
@@ -404,6 +408,10 @@ const getWatchHistory = asyncHandler(async (req, res) => {
             }
         }
     ])
+
+    if(!user){
+        throw new ApiError(400, "user not found")
+    }
 
     return res
         .status(200)
