@@ -4,12 +4,68 @@ import { User } from "../models/user.model.js"
 import { ApiError } from "../utils/ApiError.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
-import { uploadOnCloudinary } from "../utils/cloudinary.js"
+import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/cloudinary.js"
 
-
+// error
 const getAllVideos = asyncHandler(async (req, res) => {
+
     const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query
     //TODO: get all videos based on query, sort, pagination
+
+    if(!isValidObjectId(userId)){
+        throw new ApiError(401, "User id is not valid")
+    }
+    // Convert page and limit to integers
+    const pageNumber = parseInt(page, 10);
+    const limitNumber = parseInt(limit, 10);
+
+    // Calculate the offset for pagination
+    const offset = (pageNumber - 1) * limitNumber;
+
+    // Build the query object
+    const queryObj = {};
+
+    // Add search query if provided
+    if (query) {
+        queryObj.$or = [
+            { title: { $regex: query, $options: 'i' } }, // Case-insensitive search on title
+            { description: { $regex: query, $options: 'i' } } // Case-insensitive search on description
+        ];
+    }
+
+    // Add userId filter if provided
+    if (userId) {
+        queryObj.userId = new mongoose.Types.ObjectId(userId) ; // Filter by userId
+    }
+
+    // Build the sort object
+    const sortObj = {};
+    sortObj[sortBy] = sortType === 'asc' ? 1 : -1;
+
+    // Fetch the videos from the database with pagination and sorting
+    const videos = await Video.find(queryObj)
+        .sort(sortObj)
+        .skip(offset)
+        .limit(limitNumber);
+
+        console.log(videos)
+    // Fetch the total count of videos for pagination
+    const totalVideos = await Video.countDocuments(queryObj);
+
+    // Prepare the response with pagination info
+    const response = new ApiResponse(200, {
+        videos,
+        pagination: {
+            totalVideos,
+            totalPages: Math.ceil(totalVideos / limitNumber),
+            currentPage: pageNumber,
+            pageSize: limitNumber
+        }
+    }, "Videos fetched successfully");
+
+    // Send the response
+    res.status(200).json(response);
+
 })
 
 const publishAVideo = asyncHandler(async (req, res) => {
@@ -76,7 +132,6 @@ const publishAVideo = asyncHandler(async (req, res) => {
 
 })
 
-
 const getVideoById = asyncHandler(async (req, res) => {
     const { videoId } = req.params
 
@@ -99,7 +154,6 @@ const getVideoById = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, video, "Video fetched successfully"))
 })
 
-// no check
 const updateVideo = asyncHandler(async (req, res) => {
     const { videoId } = req.params
     //TODO: update video details like title, description, thumbnail
@@ -131,17 +185,29 @@ const updateVideo = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, video, "Title and Description updated successfully"))
 })
 
-// no check
 const updateThumbnail = asyncHandler(async (req, res) => {
     const { videoId } = req.params
     const thumbnailLocalPath = req.file?.path
 
-    if (!thumbnailLocalPath) {
-        throw new ApiError(401, "thumbnail is missing")
-    }
-
     if (!isValidObjectId(videoId)) {
         throw new ApiError(401, "Invalid video id")
+    }
+
+    const video = await Video.findById(videoId)
+
+    const oldThumbnailPath = video.thumbnail
+    const publicId = oldThumbnailPath.split('/').pop().split('.')[0];
+
+    if (!video) {
+        throw new ApiError(401, "Unauthorized Request")
+    }
+
+    if (!oldThumbnailPath) {
+        throw new ApiError(401, "Old Thumbnail not found")
+    }
+
+    if (!thumbnailLocalPath) {
+        throw new ApiError(401, "thumbnail is missing")
     }
 
     const thumbnail = await uploadOnCloudinary(thumbnailLocalPath)
@@ -150,16 +216,14 @@ const updateThumbnail = asyncHandler(async (req, res) => {
         throw new ApiError(401, "Something went wrong while uploading thumbnail at cloudinary")
     }
 
-    const video = await Video.findByIdAndUpdate(videoId, {
-        $set: {
-            thumbnail: thumbnail.url
-        }
-    }, { new: true })
+    video.thumbnail = thumbnail.url
+    await video.save({ validateBeforeSave: false })
+
+    await deleteFromCloudinary(publicId)
 
     return res.status(200).json(new ApiResponse(200, video, "Thumbnail Updated Successfully"))
 })
 
-// no check
 const deleteVideo = asyncHandler(async (req, res) => {
     const { videoId } = req.params
     //TODO: delete video
@@ -168,13 +232,35 @@ const deleteVideo = asyncHandler(async (req, res) => {
         throw new ApiError(401, "Invalid Video Id")
     }
 
+    const video = await Video.findById(videoId);
+
+    if (!video) {
+        throw new ApiError(401, "Unauthorized Request")
+    }
+    // console.log(video)
+    // console.log("video.thumbnail", video.thumbnail)
+    // console.log("video.videoFile", video.videoFile)
+
+    const thumbnailPublicId = video.thumbnail.split('/').pop().split('.')[0];
+    const videoFilePublicId = video.videoFile.split('/').pop().split('.')[0];
+
+    // console.log("thumbnail Public Id", thumbnailPublicId)
+    // console.log("video File Public Id", videoFilePublicId)
+
+
     const deletedVideo = await Video.findByIdAndDelete(videoId)
+
+    const thumbnailDeletedFromCloudinary = await deleteFromCloudinary(thumbnailPublicId, "image");
+    const videoFileDeletedFromCloudinary = await deleteFromCloudinary(videoFilePublicId, "video");
+
+    if (!thumbnailDeletedFromCloudinary.success || !videoFileDeletedFromCloudinary.success) {
+        throw new ApiError(500, "Something went wrong while deleting video or thumbnail from cloudinary")
+    }
 
     return res.status(200).json(new ApiResponse(200, deletedVideo, "Video deleted Succesfully"))
 
 })
 
-// Running ------------
 const togglePublishStatus = asyncHandler(async (req, res) => {
     const { videoId } = req.params
 
