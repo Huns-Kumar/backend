@@ -12,7 +12,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
     const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query
     //TODO: get all videos based on query, sort, pagination
 
-    if(!isValidObjectId(userId)){
+    if (!isValidObjectId(userId)) {
         throw new ApiError(401, "User id is not valid")
     }
     // Convert page and limit to integers
@@ -24,7 +24,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
 
     // Build the query object
     const queryObj = {};
-
+    let videos;
     // Add search query if provided
     if (query) {
         queryObj.$or = [
@@ -35,7 +35,8 @@ const getAllVideos = asyncHandler(async (req, res) => {
 
     // Add userId filter if provided
     if (userId) {
-        queryObj.userId = new mongoose.Types.ObjectId(userId) ; // Filter by userId
+        // queryObj.userId = new mongoose.Types.ObjectId(userId); // Filter by userId
+        videos = await Video.find({owner: userId});
     }
 
     // Build the sort object
@@ -43,24 +44,30 @@ const getAllVideos = asyncHandler(async (req, res) => {
     sortObj[sortBy] = sortType === 'asc' ? 1 : -1;
 
     // Fetch the videos from the database with pagination and sorting
-    const videos = await Video.find(queryObj)
-        .sort(sortObj)
-        .skip(offset)
-        .limit(limitNumber);
+    // const videos = await Video.find(queryObj)
+    //     .sort(sortObj)
+    //     .skip(offset)
+    //     .limit(limitNumber);
 
-        console.log(videos)
+    //     console.log(videos)
+    
+
+    console.log(videos)
     // Fetch the total count of videos for pagination
     const totalVideos = await Video.countDocuments(queryObj);
 
     // Prepare the response with pagination info
+    // const response = new ApiResponse(200, {
+    //     videos,
+    //     pagination: {
+    //         totalVideos,
+    //         totalPages: Math.ceil(totalVideos / limitNumber),
+    //         currentPage: pageNumber,
+    //         pageSize: limitNumber
+    //     }
+    // }, "Videos fetched successfully");
     const response = new ApiResponse(200, {
         videos,
-        pagination: {
-            totalVideos,
-            totalPages: Math.ceil(totalVideos / limitNumber),
-            currentPage: pageNumber,
-            pageSize: limitNumber
-        }
     }, "Videos fetched successfully");
 
     // Send the response
